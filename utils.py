@@ -1,7 +1,3 @@
-"""
-Utility functions and helper classes
-"""
-
 import sys
 import random
 import string
@@ -11,12 +7,8 @@ import os
 from config import ApplicationConfig, DataPools, Messages, Patterns, Selectors
 
 class ConsoleOutput:
-    """Handles console output formatting"""
-    
     @staticmethod
     def configure():
-        """Enable immediate console output with UTF-8 encoding"""
-        # Set UTF-8 encoding for Windows console to support Unicode characters
         if sys.platform == 'win32':
             sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
         else:
@@ -24,7 +16,6 @@ class ConsoleOutput:
     
     @staticmethod
     def section(step_id, title):
-        """Print formatted section header"""
         sep = "=" * ApplicationConfig.SEPARATOR_LENGTH
         print(f"\n{sep}")
         print(f"  STEP {step_id}  --  {title}")
@@ -32,22 +23,18 @@ class ConsoleOutput:
     
     @staticmethod
     def success(message):
-        """Print success message"""
         print(f"  [ OK ]  {message}")
     
     @staticmethod
     def info(message):
-        """Print info message"""
         print(f"  [INFO]  {message}")
     
     @staticmethod
     def warn(message):
-        """Print warning message"""
         print(f"  [WARN]  {message}")
     
     @staticmethod
     def final_header():
-        """Print final success header"""
         sep = "═" * ApplicationConfig.SEPARATOR_LENGTH
         print(f"\n{sep}")
         print(f"#  {Messages.FINAL_SUCCESS}")
@@ -55,49 +42,34 @@ class ConsoleOutput:
     
     @staticmethod
     def final_footer():
-        """Print final footer"""
         sep = "═" * ApplicationConfig.SEPARATOR_LENGTH
         print(f"\n{sep}")
         print(f"  {Messages.FINAL_DONE}")
         print(f"{sep}\n")
 
-class PasswordGenerator:
-    """Generates secure passwords"""
+def generate_password(length=14):
+    chars_upper = string.ascii_uppercase
+    chars_lower = string.ascii_lowercase
+    chars_digits = string.digits
+    chars_special = "!@#$%&*"
     
-    @staticmethod
-    def generate(length=14):
-        """Create a random secure password with complexity requirements"""
-        char_sets = {
-            'upper': string.ascii_uppercase,
-            'lower': string.ascii_lowercase,
-            'digits': string.digits,
-            'special': "!@#$%&*"
-        }
-        
-        # Ensure at least one character from each set
-        required = [
-            random.choice(char_sets['upper']),
-            random.choice(char_sets['lower']),
-            random.choice(char_sets['digits']),
-            random.choice(char_sets['special'])
-        ]
-        
-        # Fill remaining length
-        all_chars = ''.join(char_sets.values())
-        remaining = [random.choice(all_chars) for _ in range(length - len(required))]
-        
-        # Combine and shuffle
-        password_chars = required + remaining
-        random.shuffle(password_chars)
-        
-        return ''.join(password_chars)
+    password = [
+        random.choice(chars_upper),
+        random.choice(chars_lower),
+        random.choice(chars_digits),
+        random.choice(chars_special)
+    ]
+    
+    all_chars = chars_upper + chars_lower + chars_digits + chars_special
+    for i in range(length - 4):
+        password.append(random.choice(all_chars))
+    
+    random.shuffle(password)
+    return ''.join(password)
 
 class ProfileBuilder:
-    """Builds registration profiles with randomized data"""
-    
     @staticmethod
     def build():
-        """Generate complete registration profile"""
         ts = ApplicationConfig.TIMESTAMP
         
         return {
@@ -106,7 +78,7 @@ class ProfileBuilder:
                 'family_name': random.choice(DataPools.LAST_NAMES),
                 'email_user': f"autobot{ts}",
                 'phone': f"9841{random.randint(100000, 999999)}",
-                'credential': PasswordGenerator.generate()
+                'credential': generate_password()
             },
             'company_info': {
                 'name': f"{random.choice(DataPools.ORGANIZATION_PREFIXES)} {random.choice(DataPools.ORGANIZATION_SUFFIXES)} {ts}",
@@ -132,50 +104,30 @@ class ProfileBuilder:
         }
 
 class DelayController:
-    """Manages timing and delays"""
-    
     @staticmethod
     async def natural_wait(page, base_ms=None):
-        """Apply human-like delay with variance"""
         if base_ms is None:
-            base_ms = random.randint(
-                ApplicationConfig.MIN_DELAY_MS, 
-                ApplicationConfig.MAX_DELAY_MS
-            )
+            base_ms = random.randint(ApplicationConfig.MIN_DELAY_MS, ApplicationConfig.MAX_DELAY_MS)
         
-        variance = random.randint(
-            -ApplicationConfig.DELAY_VARIANCE // 2, 
-            ApplicationConfig.DELAY_VARIANCE
-        )
-        
+        variance = random.randint(-200, ApplicationConfig.DELAY_VARIANCE)
         final_delay = max(100, base_ms + variance)
         await page.wait_for_timeout(final_delay)
 
 class OTPExtractor:
-    """Extracts OTP codes from email"""
-    
     @staticmethod
     def find_code(text):
-        """Extract 6-digit OTP from text"""
         match = re.search(Patterns.OTP_PATTERN, text)
         return match.group(1) if match else None
     
     @staticmethod
     def has_keywords(text):
-        """Check if text contains OTP-related keywords"""
         text_lower = text.lower()
         return any(kw in text_lower for kw in Patterns.EMAIL_KEYWORDS)
 
 class FileManager:
-    """Manages temporary file operations"""
-    
     @staticmethod
     def create_temp_document(profile):
-        """Create temporary business document"""
-        doc_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "_temp_business_doc.txt"
-        )
+        doc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_temp_business_doc.txt")
         
         with open(doc_path, "w") as f:
             f.write(
@@ -189,18 +141,14 @@ class FileManager:
     
     @staticmethod
     def cleanup(file_path):
-        """Remove temporary file"""
         try:
             os.remove(file_path)
         except OSError:
             pass
 
 class ElementFinder:
-    """Discovers form elements dynamically"""
-    
     @staticmethod
     async def find_dialog_options(page, trigger):
-        """Extract options from modal dialog"""
         await trigger.click()
         await DelayController.natural_wait(page, 1000)
         
@@ -208,12 +156,12 @@ class ElementFinder:
         await dialog.wait_for(state="visible", timeout=5000)
         
         options = []
-        spans = dialog.locator("div[role='option'] span, label span, [data-value] span, span")
+        spans = dialog.locator("span")
         count = await spans.count()
         
         for i in range(count):
             text = (await spans.nth(i).inner_text()).strip()
-            if text and text not in options and len(text) > 1:
+            if text and text not in options:
                 options.append(text)
         
         await page.keyboard.press("Escape")
@@ -223,7 +171,6 @@ class ElementFinder:
     
     @staticmethod
     async def find_dropdown_options(page, trigger):
-        """Extract options from dropdown"""
         await trigger.click()
         await DelayController.natural_wait(page, 1000)
         
@@ -243,7 +190,6 @@ class ElementFinder:
     
     @staticmethod
     async def find_checkbox_options(page):
-        """Extract checkbox labels"""
         options = []
         labels = page.locator(Selectors.LABEL_ELEMENT)
         count = await labels.count()
@@ -260,11 +206,8 @@ class ElementFinder:
         return options
 
 class FormInteractor:
-    """Interacts with form elements"""
-    
     @staticmethod
     async def select_dialog_items(page, trigger, selections):
-        """Select items from modal dialog"""
         await trigger.click()
         await DelayController.natural_wait(page, 1000)
         
@@ -288,7 +231,6 @@ class FormInteractor:
     
     @staticmethod
     async def check_boxes(page, selections):
-        """Check checkbox elements"""
         for item in selections:
             label = page.locator(f"label:has-text('{item}')").first
             
@@ -308,11 +250,8 @@ class FormInteractor:
             await DelayController.natural_wait(page, 300)
 
 class EmailReader:
-    """Reads emails from Mailinator"""
-    
     @staticmethod
     async def fetch_otp(browser, username):
-        """Retrieve OTP from email inbox"""
         inbox_url = f"{ApplicationConfig.MAILINATOR_INBOX_URL}{username}"
         context = await browser.new_context()
         page = await context.new_page()
@@ -327,18 +266,13 @@ class EmailReader:
                 row_count = await rows.count()
                 
                 if row_count < 2:
-                    ConsoleOutput.info(
-                        f"Attempt {attempt}/{ApplicationConfig.MAX_OTP_RETRIES}: "
-                        f"inbox empty ({row_count} rows) — retrying in "
-                        f"{ApplicationConfig.OTP_RETRY_INTERVAL}s …"
-                    )
+                    ConsoleOutput.info(f"Attempt {attempt}: inbox empty, retrying in {ApplicationConfig.OTP_RETRY_INTERVAL}s")
                     await DelayController.natural_wait(page, ApplicationConfig.OTP_RETRY_INTERVAL * 1000)
                     continue
                 
                 target_row = None
                 for idx in range(1, row_count):
                     row_text = await rows.nth(idx).inner_text()
-                    ConsoleOutput.info(f"  Row {idx}: {row_text[:100]}")
                     
                     if OTPExtractor.has_keywords(row_text):
                         target_row = rows.nth(idx)
@@ -353,12 +287,7 @@ class EmailReader:
                 
                 email_body = ""
                 try:
-                    email_body = await (
-                        page.frame_locator(Selectors.EMAIL_IFRAME)
-                            .locator(Selectors.BODY_ELEMENT)
-                            .inner_text(timeout=10000)
-                    )
-                    ConsoleOutput.info(f"  iframe body (first 200): {email_body[:200]}")
+                    email_body = await (page.frame_locator(Selectors.EMAIL_IFRAME).locator(Selectors.BODY_ELEMENT).inner_text(timeout=10000))
                 except Exception as e:
                     ConsoleOutput.warn(f"{Messages.WARN_NO_IFRAME} {e}")
                 

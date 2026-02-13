@@ -1,14 +1,14 @@
 import asyncio
 import traceback
+import sys
+import time
 from playwright.async_api import async_playwright
 from config import ApplicationConfig, Messages
 from utils import ConsoleOutput, ProfileBuilder
 from signup_bot import SignupBot
 
 def display_startup_banner(profile):
-    """Display initial configuration information"""
-    sep = "=" * ApplicationConfig.SEPARATOR_LENGTH
-    
+    sep = "=" * 64
     print(f"\n{sep}")
     print(f"AUTOMATED SIGNUP — authorized-partner.vercel.app")
     print(f"{sep}")
@@ -18,33 +18,30 @@ def display_startup_banner(profile):
     print(f"  Password  : {profile['user_info']['credential']}")
 
 async def execute_automation():
-    """Main execution function"""
     ConsoleOutput.configure()
-    
-    # Generate registration profile
     profile = ProfileBuilder.build()
-    
-    # Display startup information
     display_startup_banner(profile)
     
-    # Initialize and run bot
     async with async_playwright() as pw:
         bot = SignupBot(profile)
         await bot.setup_browser(pw)
         await bot.run_workflow()
-    
-    # Display completion message
-    ConsoleOutput.final_footer()
+        ConsoleOutput.final_footer()
 
 def main():
-    """Entry point"""
     try:
         asyncio.run(execute_automation())
+        print("\nScript execution completed. Exiting in 5 seconds...")
+        time.sleep(5)
+        sys.exit(0)
     except KeyboardInterrupt:
         print("\n\nAutomation interrupted by user.")
+        sys.exit(1)
     except Exception as error:
         print(f"\n!!! ERROR !!!\n{error}")
         traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
+    main()
     main()

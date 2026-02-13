@@ -1,20 +1,8 @@
-"""
-Signup bot automation workflow
-"""
-
 import random
-from config import (
-    ApplicationConfig, FieldNames, Selectors, Messages, 
-    DataPools, Patterns
-)
-from utils import (
-    ConsoleOutput, DelayController, ElementFinder, 
-    FormInteractor, EmailReader, FileManager
-)
+from config import ApplicationConfig, FieldNames, Selectors, Messages, DataPools, Patterns
+from utils import ConsoleOutput, DelayController, ElementFinder, FormInteractor, EmailReader, FileManager
 
 class SignupBot:
-    """Automated signup workflow orchestrator"""
-    
     def __init__(self, profile):
         self.profile = profile
         self.browser = None
@@ -22,73 +10,42 @@ class SignupBot:
         self.page = None
     
     async def setup_browser(self, playwright):
-        """Initialize browser and context"""
-        self.browser = await playwright.chromium.launch(
-            headless=False, 
-            slow_mo=ApplicationConfig.SLOW_MOTION_MS
-        )
-        self.context = await self.browser.new_context(
-            viewport={
-                "width": ApplicationConfig.BROWSER_WIDTH, 
-                "height": ApplicationConfig.BROWSER_HEIGHT
-            }
-        )
+        self.browser = await playwright.chromium.launch(headless=False, slow_mo=ApplicationConfig.SLOW_MOTION_MS)
+        self.context = await self.browser.new_context(viewport={"width": ApplicationConfig.BROWSER_WIDTH, "height": ApplicationConfig.BROWSER_HEIGHT})
         self.page = await self.context.new_page()
     
     async def teardown(self):
-        """Close browser and cleanup"""
         if self.context:
             await self.context.close()
         if self.browser:
             await self.browser.close()
     
     async def phase_0_accept_terms(self):
-        """Accept terms and conditions"""
         ConsoleOutput.section(0, Messages.HEADER_TERMS)
         
         ConsoleOutput.info(f"{Messages.INFO_NAVIGATING} {ApplicationConfig.TARGET_URL} …")
-        await self.page.goto(
-            ApplicationConfig.TARGET_URL, 
-            wait_until="networkidle", 
-            timeout=30000
-        )
+        await self.page.goto(ApplicationConfig.TARGET_URL, wait_until="networkidle", timeout=30000)
         await DelayController.natural_wait(self.page, 2000)
         
-        ConsoleOutput.info(Messages.INFO_SCANNING_LINKS)
         links = self.page.locator("a[href]")
         link_count = await links.count()
-        candidates = []
+        reg_link = None
         
         for i in range(link_count):
             link = links.nth(i)
             href = await link.get_attribute("href")
-            
             if href and "register" in href:
                 if await link.is_visible():
-                    text = (await link.inner_text()).strip()
-                    box = await link.bounding_box()
-                    ConsoleOutput.info(
-                        f"  Visible link #{len(candidates)}: '{text}' → {href}  (y={box['y']:.0f})" 
-                        if box else f"  Visible link: '{text}' → {href}"
-                    )
-                    candidates.append((link, text, box))
+                    reg_link = link
+                    break
         
-        if not candidates:
+        if reg_link is None:
             raise RuntimeError(Messages.ERROR_NO_REG_LINK)
         
-        selected_link, selected_text, _ = candidates[0]
-        
-        for link, text, box in candidates:
-            if box and box["y"] > 100:
-                selected_link, selected_text = link, text
-                break
-        
-        ConsoleOutput.info(f"{Messages.INFO_CLICKING} '{selected_text}'")
-        await selected_link.scroll_into_view_if_needed()
+        await reg_link.scroll_into_view_if_needed()
         await DelayController.natural_wait(self.page, 1000)
-        await selected_link.hover()
-        await selected_link.click()
-        ConsoleOutput.success(f"{Messages.SUCCESS_CLICKED} '{selected_text}'")
+        await reg_link.click()
+        ConsoleOutput.success(f"{Messages.SUCCESS_CLICKED} registration link")
         await DelayController.natural_wait(self.page, 3000)
         
         await self.page.locator(Selectors.CHECKBOX_BUTTON).click()
@@ -99,57 +56,51 @@ class SignupBot:
         await DelayController.natural_wait(self.page, 2000)
     
     async def phase_1_create_account(self):
-        """Create user account"""
         ConsoleOutput.section(1, Messages.HEADER_ACCOUNT)
         
         user = self.profile['user_info']
         
-        fields = {
-            FieldNames.FIRST_NAME: user['given_name'],
-            FieldNames.LAST_NAME: user['family_name'],
-            FieldNames.EMAIL: f"{user['email_user']}@{ApplicationConfig.EMAIL_DOMAIN}",
-            FieldNames.PHONE_NUMBER: user['phone'],
-            FieldNames.PASSWORD: user['credential'],
-            FieldNames.CONFIRM_PASSWORD: user['credential']
-        }
+        await self.page.fill(f"input[name='{FieldNames.FIRST_NAME}']", user['given_name'])
+        ConsoleOutput.success(f"{FieldNames.FIRST_NAME} = {user['given_name']}")
         
-        for field, value in fields.items():
-            await self.page.fill(f"input[name='{field}']", value)
-            ConsoleOutput.success(f"{field:>20s} = {value}")
+        await self.page.fill(f"input[name='{FieldNames.LAST_NAME}']", user['family_name'])
+        ConsoleOutput.success(f"{FieldNames.LAST_NAME} = {user['family_name']}")
+        
+        email = f"{user['email_user']}@{ApplicationConfig.EMAIL_DOMAIN}"
+        await self.page.fill(f"input[name='{FieldNames.EMAIL}']", email)
+        ConsoleOutput.success(f"{FieldNames.EMAIL} = {email}")
+        
+        await self.page.fill(f"input[name='{FieldNames.PHONE_NUMBER}']", user['phone'])
+        ConsoleOutput.success(f"{FieldNames.PHONE_NUMBER} = {user['phone']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.PASSWORD}']", user['credential'])
+        ConsoleOutput.success(f"{FieldNames.PASSWORD} = {user['credential']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.CONFIRM_PASSWORD}']", user['credential'])
+        ConsoleOutput.success(f"{FieldNames.CONFIRM_PASSWORD} = {user['credential']}")
         
         await self.page.locator(Selectors.SUBMIT_BUTTON).click()
         ConsoleOutput.success(Messages.SUCCESS_SUBMITTED)
+        await DelayController.natural_wait(self.page, 3000)
         
         otp_field = self.page.locator(Selectors.OTP_INPUT)
         await otp_field.wait_for(state="visible", timeout=30000)
         ConsoleOutput.success(Messages.SUCCESS_OTP_APPEARED)
     
     async def phase_1b_verify_otp(self):
-        """Verify OTP code"""
         ConsoleOutput.section("1b", Messages.HEADER_OTP)
         
         verified = False
         
         for attempt in range(1, ApplicationConfig.MAX_VERIFICATION_ATTEMPTS + 1):
-            ConsoleOutput.info(f"OTP attempt {attempt}/{ApplicationConfig.MAX_VERIFICATION_ATTEMPTS}")
+            ConsoleOutput.info(f"OTP attempt {attempt}")
             ConsoleOutput.info(Messages.INFO_WAITING_EMAIL)
             await DelayController.natural_wait(self.page, 5000)
             
-            code = await EmailReader.fetch_otp(
-                self.browser, 
-                self.profile['user_info']['email_user']
-            )
+            code = await EmailReader.fetch_otp(self.browser, self.profile['user_info']['email_user'])
             
             otp_field = self.page.locator(Selectors.OTP_INPUT)
             await otp_field.first.wait_for(state="visible", timeout=10000)
-            
-            otp_fields = self.page.locator(Selectors.OTP_INPUT)
-            field_count = await otp_fields.count()
-            
-            for i in range(field_count):
-                await otp_fields.nth(i).fill("")
-            
-            await DelayController.natural_wait(self.page, 200)
             
             await otp_field.first.click()
             await DelayController.natural_wait(self.page, 300)
@@ -164,31 +115,28 @@ class SignupBot:
             ConsoleOutput.success(Messages.SUCCESS_VERIFICATION_SUBMITTED)
             await DelayController.natural_wait(self.page, 4000)
             
-            error = ""
-            try:
-                error_elem = self.page.locator(Selectors.ERROR_ALERT)
-                if await error_elem.count() > 0:
+            error_elem = self.page.locator(Selectors.ERROR_ALERT)
+            if await error_elem.count() > 0:
+                try:
                     error = await error_elem.first.inner_text(timeout=2000)
                     ConsoleOutput.warn(f"{Messages.WARN_ERROR_DETECTED} {error}")
-            except Exception:
-                pass
+                    
+                    if "expired" in error.lower() or "invalid" in error.lower():
+                        if attempt < ApplicationConfig.MAX_VERIFICATION_ATTEMPTS:
+                            ConsoleOutput.info(Messages.WARN_OTP_INVALID)
+                            resend = self.page.locator(Selectors.RESEND_BUTTON)
+                            if await resend.count() > 0:
+                                await resend.first.click()
+                                ConsoleOutput.success(Messages.SUCCESS_RESEND_CLICKED)
+                                await DelayController.natural_wait(self.page, 3000)
+                            continue
+                        else:
+                            raise RuntimeError(Messages.ERROR_VERIFICATION_FAILED)
+                except:
+                    pass
             
-            if any(kw in error.lower() for kw in Patterns.ERROR_KEYWORDS):
-                if attempt < ApplicationConfig.MAX_VERIFICATION_ATTEMPTS:
-                    ConsoleOutput.info(Messages.WARN_OTP_INVALID)
-                    resend = self.page.locator(Selectors.RESEND_BUTTON)
-                    if await resend.count() > 0:
-                        await resend.first.click()
-                        ConsoleOutput.success(Messages.SUCCESS_RESEND_CLICKED)
-                        await DelayController.natural_wait(self.page, 3000)
-                    else:
-                        ConsoleOutput.warn(Messages.WARN_NO_RESEND)
-                    continue
-                else:
-                    raise RuntimeError(Messages.ERROR_VERIFICATION_FAILED)
-            else:
-                verified = True
-                break
+            verified = True
+            break
         
         if not verified:
             raise RuntimeError(Messages.ERROR_VERIFICATION_NO_SUCCESS)
@@ -196,33 +144,30 @@ class SignupBot:
         ConsoleOutput.info(f"{Messages.INFO_POST_VERIFICATION} {self.page.url}")
     
     async def phase_2_agency_details(self):
-        """Enter agency information"""
         ConsoleOutput.section(2, Messages.HEADER_AGENCY)
         
-        await self.page.wait_for_selector(
-            f"input[name='{FieldNames.AGENCY_NAME}']",
-            state="visible",
-            timeout=30000
-        )
+        await self.page.wait_for_selector(f"input[name='{FieldNames.AGENCY_NAME}']", state="visible", timeout=30000)
         
         company = self.profile['company_info']
         
-        fields = {
-            FieldNames.AGENCY_NAME: company['name'],
-            FieldNames.ROLE_IN_AGENCY: company['position'],
-            FieldNames.AGENCY_EMAIL: company['email'],
-            FieldNames.AGENCY_WEBSITE: company['website'],
-            FieldNames.AGENCY_ADDRESS: company['address']
-        }
+        await self.page.fill(f"input[name='{FieldNames.AGENCY_NAME}']", company['name'])
+        ConsoleOutput.success(f"{FieldNames.AGENCY_NAME} = {company['name']}")
         
-        for field, value in fields.items():
-            await self.page.fill(f"input[name='{field}']", value)
-            ConsoleOutput.success(f"{field:>20s} = {value}")
+        await self.page.fill(f"input[name='{FieldNames.ROLE_IN_AGENCY}']", company['position'])
+        ConsoleOutput.success(f"{FieldNames.ROLE_IN_AGENCY} = {company['position']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.AGENCY_EMAIL}']", company['email'])
+        ConsoleOutput.success(f"{FieldNames.AGENCY_EMAIL} = {company['email']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.AGENCY_WEBSITE}']", company['website'])
+        ConsoleOutput.success(f"{FieldNames.AGENCY_WEBSITE} = {company['website']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.AGENCY_ADDRESS}']", company['address'])
+        ConsoleOutput.success(f"{FieldNames.AGENCY_ADDRESS} = {company['address']}")
         
         ConsoleOutput.info(Messages.INFO_DISCOVERING_REGIONS)
         region_combo = self.page.locator(Selectors.COMBOBOX_BUTTON)
         available = await ElementFinder.find_dialog_options(self.page, region_combo)
-        ConsoleOutput.info(f"{Messages.INFO_AVAILABLE_REGIONS} {available}")
         
         if available:
             count = random.randint(1, min(3, len(available)))
@@ -238,13 +183,11 @@ class SignupBot:
         await DelayController.natural_wait(self.page, 5000)
     
     async def phase_3_professional_experience(self):
-        """Enter professional background"""
         ConsoleOutput.section(3, Messages.HEADER_EXPERIENCE)
         
         ConsoleOutput.info(Messages.INFO_DISCOVERING_EXPERIENCE)
         exp_combo = self.page.locator(Selectors.COMBOBOX_BUTTON).first
         available = await ElementFinder.find_dropdown_options(self.page, exp_combo)
-        ConsoleOutput.info(f"{Messages.INFO_AVAILABLE_EXPERIENCE} {available}")
         
         background = self.profile['background']
         
@@ -266,19 +209,17 @@ class SignupBot:
         ConsoleOutput.success(f"Years of Experience = {selected_exp}")
         await DelayController.natural_wait(self.page, 500)
         
-        fields = {
-            FieldNames.STUDENTS_RECRUITED: background['students'],
-            FieldNames.FOCUS_AREA: background['specialty'],
-            FieldNames.SUCCESS_METRICS: background['success']
-        }
+        await self.page.fill(f"input[name='{FieldNames.STUDENTS_RECRUITED}']", background['students'])
+        ConsoleOutput.success(f"{FieldNames.STUDENTS_RECRUITED} = {background['students']}")
         
-        for field, value in fields.items():
-            await self.page.fill(f"input[name='{field}']", value)
-            ConsoleOutput.success(f"{field:>42s} = {value}")
+        await self.page.fill(f"input[name='{FieldNames.FOCUS_AREA}']", background['specialty'])
+        ConsoleOutput.success(f"{FieldNames.FOCUS_AREA} = {background['specialty']}")
+        
+        await self.page.fill(f"input[name='{FieldNames.SUCCESS_METRICS}']", background['success'])
+        ConsoleOutput.success(f"{FieldNames.SUCCESS_METRICS} = {background['success']}")
         
         ConsoleOutput.info(Messages.INFO_DISCOVERING_SERVICES)
         available_services = await ElementFinder.find_checkbox_options(self.page)
-        ConsoleOutput.info(f"{Messages.INFO_AVAILABLE_SERVICES} {available_services}")
         
         if available_services:
             count = random.randint(2, len(available_services))
@@ -294,27 +235,18 @@ class SignupBot:
         await DelayController.natural_wait(self.page, 5000)
     
     async def phase_4_verification(self):
-        """Complete verification and upload documents"""
         ConsoleOutput.section(4, Messages.HEADER_VERIFICATION)
         
-        await self.page.wait_for_selector(
-            f"input[name='{FieldNames.BUSINESS_REG_NUMBER}']",
-            state="visible",
-            timeout=15000
-        )
+        await self.page.wait_for_selector(f"input[name='{FieldNames.BUSINESS_REG_NUMBER}']", state="visible", timeout=15000)
         
         validation = self.profile['validation']
         
-        await self.page.fill(
-            f"input[name='{FieldNames.BUSINESS_REG_NUMBER}']",
-            validation['reg_num']
-        )
+        await self.page.fill(f"input[name='{FieldNames.BUSINESS_REG_NUMBER}']", validation['reg_num'])
         ConsoleOutput.success(f"{FieldNames.BUSINESS_REG_NUMBER} = {validation['reg_num']}")
         
         ConsoleOutput.info(Messages.INFO_DISCOVERING_COUNTRIES)
         country_combo = self.page.locator(Selectors.COMBOBOX_BUTTON)
         available = await ElementFinder.find_dialog_options(self.page, country_combo)
-        ConsoleOutput.info(f"{Messages.INFO_AVAILABLE_COUNTRIES} {available}")
         
         if available:
             count = random.randint(1, min(3, len(available)))
@@ -327,7 +259,6 @@ class SignupBot:
         
         ConsoleOutput.info(Messages.INFO_DISCOVERING_INSTITUTIONS)
         available_inst = await ElementFinder.find_checkbox_options(self.page)
-        ConsoleOutput.info(f"{Messages.INFO_AVAILABLE_INSTITUTIONS} {available_inst}")
         
         if available_inst:
             count = random.randint(1, len(available_inst))
@@ -338,10 +269,7 @@ class SignupBot:
         ConsoleOutput.info(f"{Messages.INFO_SELECTED_INSTITUTIONS} {selected_inst}")
         await FormInteractor.check_boxes(self.page, selected_inst)
         
-        await self.page.fill(
-            f"input[name='{FieldNames.CERTIFICATION_DETAILS}']",
-            validation['certs']
-        )
+        await self.page.fill(f"input[name='{FieldNames.CERTIFICATION_DETAILS}']", validation['certs'])
         ConsoleOutput.success(f"{FieldNames.CERTIFICATION_DETAILS} = {validation['certs']}")
         
         ConsoleOutput.info(Messages.INFO_UPLOADING_DOCS)
@@ -382,11 +310,8 @@ class SignupBot:
                 print(f"    │ {stripped}")
         
         FileManager.cleanup(doc_path)
-        
-        await DelayController.natural_wait(self.page, 7000)
     
     async def run_workflow(self):
-        """Execute complete signup workflow"""
         try:
             await self.phase_0_accept_terms()
             await self.phase_1_create_account()
